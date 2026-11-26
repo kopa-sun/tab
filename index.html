@@ -90,6 +90,16 @@ h3{font-size:16px;margin:18px 0 2px}
 #pad small{font-size:10px;color:var(--mute)}
 #pad button.on small{color:#16100e}
 #pad svg{width:14px;height:20px;overflow:visible}
+#syncP{display:flex;flex-direction:column;gap:6px;padding:8px 8px calc(8px + env(safe-area-inset-bottom));background:var(--panel);border-top:1px solid #2c2f38;flex:none}
+#syncP.hidden{display:none}
+.srow{display:flex;gap:6px;align-items:center}
+.srow button{flex:1;min-height:42px;padding:0 6px;font-size:14px}
+.srow .wide{flex:2.2}
+.sval{flex:1.6;text-align:center;font-variant-numeric:tabular-nums;font-size:14px;color:var(--mute);white-space:nowrap}
+.sval.big{font-size:18px;color:var(--ink)}
+#tapB{min-height:76px;font-size:22px;font-weight:800;background:#343844;display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1.2}
+#tapB small{font-size:12px;font-weight:400;color:var(--mute)}
+#tapB.hit{background:var(--acc);color:#16100e}
 /* sheet */
 #sheet{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:flex-end;justify-content:center;z-index:20}
 #sheet .box{background:var(--panel);width:min(640px,100%);max-height:90dvh;overflow:auto;border-radius:18px 18px 0 0;padding:6px 16px calc(18px + env(safe-area-inset-bottom))}
@@ -138,6 +148,7 @@ h3{font-size:16px;margin:18px 0 2px}
   <div class="tp">
     <button id="home" aria-label="先頭へ">⏮</button>
     <button id="playb">▶ 再生</button>
+    <button id="syncB">テンポ・同期</button>
     <span id="pos">1小節</span>
     <select id="rate" aria-label="速度"><option value="0.5">0.5×</option><option value="0.75">0.75×</option><option value="1" selected>1×</option></select>
     <button id="loopb">ループ</button>
@@ -149,6 +160,13 @@ h3{font-size:16px;margin:18px 0 2px}
   <div class="tracks" id="tracks"></div>
   <div id="tab"></div>
   <div id="pad"></div>
+  <div id="syncP" class="hidden">
+    <div class="srow"><button id="v_back">−5秒</button><button id="v_play">▶ 動画</button><button id="v_fwd">+5秒</button><span id="v_time" class="sval">0:00.0</span></div>
+    <button id="tapB">タップ<small id="tapInfo">拍に合わせて叩く</small></button>
+    <div class="srow"><button data-b="-1">−1</button><button data-b="-0.1">−0.1</button><span class="sval big">♩=<b id="bpmV"></b></span><button data-b="0.1">+0.1</button><button data-b="1">+1</button></div>
+    <div class="srow"><button id="v_mark" class="wide">今を1小節目の1拍目に</button><button data-o="-0.01">−0.01</button><button data-o="0.01">+0.01</button></div>
+    <div class="srow"><span class="sval">開始位置 <b id="offV"></b> 秒</span><button id="syncX" class="wide">閉じる</button></div>
+  </div>
 </section>
 
 <div id="sheet" class="hidden"><div class="box" id="sheetBox"></div></div>
@@ -290,16 +308,16 @@ function openSong(s){
   $('#etitle').textContent=s.title;$('#la').value=1;$('#lb').value=Math.min(4,nBars(s));
   renderTracks();renderTab();setupVideo();
 }
-$('#back').onclick=()=>{stop();destroyVideo();song=null;$('#ed').classList.add('hidden');$('#list').classList.remove('hidden');renderList();};
+$('#back').onclick=()=>{closeSync();stop();destroyVideo();song=null;$('#ed').classList.add('hidden');$('#list').classList.remove('hidden');renderList();};
 $('#undo').onclick=undo;$('#redo').onclick=redo;
 $('#gear').onclick=()=>openSettings();
-$('#padT').onclick=e=>{const p=$('#pad');p.classList.toggle('hidden');e.currentTarget.classList.toggle('on',!p.classList.contains('hidden'));};
+$('#padT').onclick=e=>{if(!$('#syncP').classList.contains('hidden'))closeSync();else{const p=$('#pad');p.classList.toggle('hidden');e.currentTarget.classList.toggle('on',!p.classList.contains('hidden'));}};
 $('#vsize').onclick=e=>{vsize={L:'S',S:'H',H:'L'}[vsize];$('#vbox').className=vsize;e.currentTarget.textContent={L:'動画 大',S:'動画 小',H:'動画 隠す'}[vsize];};
 $('#follow').onclick=e=>{follow=!follow;e.currentTarget.classList.toggle('on',follow);};
 $('#clickb').onclick=e=>{clickOn=!clickOn;e.currentTarget.classList.toggle('on',clickOn);};
 $('#loopb').onclick=e=>{loopOn=!loopOn;e.currentTarget.classList.toggle('on',loopOn);$('#loopr').classList.toggle('hidden',!loopOn);if(loopOn){$('#la').value=cur.m+1;$('#lb').value=Math.max(cur.m+1,+$('#lb').value||1);}};
 $('#home').onclick=()=>{const was=P.on;if(was)stop();cur.m=0;cur.e=0;markCursor(true);$('#tab').scrollTo({top:0});};
-$('#playb').onclick=()=>P.on?stop():play();
+$('#playb').onclick=()=>{if(!$('#syncP').classList.contains('hidden'))closeSync();P.on?stop():play();};
 $('#rate').onchange=()=>{if(P.on){stop();play();}};
 
 function renderTracks(){
@@ -433,7 +451,7 @@ function openSettings(){
   <label>曲名<input id="s_title" value="${esc(song.title)}"></label>
   <label>YouTube の URL（または動画ID）<input id="s_yt" value="${esc(song.yt)}" placeholder="https://youtu.be/…" autocomplete="off" autocapitalize="off"></label>
   <label>動画の音量 <span id="s_vvl">${song.vvol}</span><input id="s_vvol" type="range" min="0" max="100" value="${song.vvol}"></label>
-  <div class="row2"><label>テンポ（♩＝）<input id="s_bpm" type="number" min="20" max="400" step="0.1" value="${song.bpm}" inputmode="decimal"></label><button id="s_tap">タップで計測</button></div>
+  <div class="row2"><label>テンポ（♩＝）<input id="s_bpm" type="number" min="20" max="400" step="0.1" value="${song.bpm}" inputmode="decimal"></label><button id="s_tap">タップで計測…</button></div>
   <div class="row2"><label>拍子（分子）<select id="s_num">${nums.map(n=>`<option ${n===song.num?'selected':''}>${n}</option>`).join('')}</select></label><label>拍子（分母）<select id="s_den">${dens.map(n=>`<option ${n===song.den?'selected':''}>${n}</option>`).join('')}</select></label></div>
   <h3>動画との同期</h3>
   <p class="hint">1小節目の1拍目が動画の何秒目かを指定します。動画を1拍目で一時停止して「今の動画位置にする」が簡単。ずれたら ± で微調整。</p>
@@ -456,7 +474,7 @@ function openSettings(){
   g('s_yt').onchange=e=>{song.yt=e.target.value.trim();save();setupVideo();if(song.yt&&!ytId(song.yt))toast('URLから動画IDを読み取れませんでした');};
   g('s_vvol').oninput=e=>{song.vvol=+e.target.value;g('s_vvl').textContent=song.vvol;try{yt&&ytReady&&yt.setVolume(song.vvol)}catch(x){}save();};
   g('s_bpm').onchange=e=>{const v=+e.target.value;if(v>=20&&v<=400){song.bpm=v;save();}else e.target.value=song.bpm;};
-  g('s_tap').onclick=()=>{const n=performance.now();if(taps.length&&n-taps[taps.length-1]>2000)taps=[];taps.push(n);if(taps.length>6)taps.shift();
+  g('s_tap').onclick=()=>{closeSheet();openSync();};const _old=()=>{const n=performance.now();if(taps.length&&n-taps[taps.length-1]>2000)taps=[];taps.push(n);if(taps.length>6)taps.shift();
     if(taps.length>=3){const iv=(taps[taps.length-1]-taps[0])/(taps.length-1);song.bpm=Math.round(600000/iv)/10;g('s_bpm').value=song.bpm;save();}else toast('拍に合わせて何度かタップ');};
   g('s_num').onchange=e=>{song.num=+e.target.value;save();renderTab();};
   g('s_den').onchange=e=>{song.den=+e.target.value;save();renderTab();};
@@ -636,6 +654,43 @@ function setupVideo(){
       onError:e=>{toast([101,150].includes(e.data)?'この動画は埋め込み再生が許可されていません':'動画を再生できません（エラー '+e.data+'）');}}});
 }
 
+
+/* ---------- tempo & sync panel ---------- */
+const VT={v:-1,t:0,timer:0};
+function vidNow(){if(!(yt&&ytReady))return null;let v,st;try{v=yt.getCurrentTime();st=yt.getPlayerState();}catch(e){return null;}
+  const n=performance.now();if(v!==VT.v){VT.v=v;VT.t=n;}
+  if(st!==1)return v;let r=1;try{r=yt.getPlaybackRate()||1}catch(e){}return VT.v+Math.min(.3,(n-VT.t)/1000)*r;}
+const fmtT=s=>{s=Math.max(0,s);const m=Math.floor(s/60);return m+':'+(s-m*60).toFixed(1).padStart(4,'0');};
+function syncShow(){$('#bpmV').textContent=+song.bpm;$('#offV').textContent=song.offset.toFixed(2);}
+function syncTick(){const v=vidNow();$('#v_time').textContent=v==null?'動画なし':fmtT(v);
+  let st=-1;try{st=yt&&ytReady?yt.getPlayerState():-1}catch(e){}$('#v_play').textContent=st===1?'❚❚ 動画':'▶ 動画';}
+function openSync(){
+  if(P.on)stop();
+  $('#pad').classList.add('hidden');$('#padT').classList.remove('on');$('#syncP').classList.remove('hidden');$('#syncB').classList.add('on');
+  taps=[];$('#tapInfo').textContent='拍に合わせて叩く';syncShow();
+  clearInterval(VT.timer);VT.timer=setInterval(syncTick,50);syncTick();
+}
+function closeSync(){$('#syncP').classList.add('hidden');$('#syncB').classList.remove('on');$('#pad').classList.remove('hidden');$('#padT').classList.add('on');clearInterval(VT.timer);}
+$('#syncB').onclick=()=>$('#syncP').classList.contains('hidden')?openSync():closeSync();
+$('#syncX').onclick=closeSync;
+$('#v_play').onclick=()=>{if(!(yt&&ytReady))return toast('「設定」でYouTubeのURLを入れてください');try{yt.getPlayerState()===1?yt.pauseVideo():yt.playVideo();}catch(e){}};
+const vSeek=d=>{if(!(yt&&ytReady))return;try{yt.seekTo(Math.max(0,yt.getCurrentTime()+d),true);VT.v=-1;}catch(e){}};
+$('#v_back').onclick=()=>vSeek(-5);$('#v_fwd').onclick=()=>vSeek(5);
+$('#tapB').addEventListener('pointerdown',e=>{
+  e.preventDefault();const n=performance.now();
+  if(taps.length&&n-taps[taps.length-1]>2000)taps=[];taps.push(n);if(taps.length>12)taps.shift();
+  const b=$('#tapB');b.classList.add('hit');setTimeout(()=>b.classList.remove('hit'),90);
+  if(taps.length>=4){const iv=(taps[taps.length-1]-taps[0])/(taps.length-1);song.bpm=Math.round(600000/iv)/10;save();syncShow();
+    $('#tapInfo').textContent=taps.length+'回の平均（2秒止めるとリセット）';}
+  else $('#tapInfo').textContent=taps.length+'回目…あと'+(4-taps.length)+'回';
+});
+$('#syncP').addEventListener('click',e=>{
+  const b=e.target.closest('[data-b],[data-o]');if(!b)return;
+  if(b.dataset.b){song.bpm=Math.min(400,Math.max(20,Math.round((song.bpm+ +b.dataset.b)*10)/10));}
+  else{song.offset=Math.round((song.offset+ +b.dataset.o)*1000)/1000;}
+  save();syncShow();
+});
+$('#v_mark').onclick=()=>{const v=vidNow();if(v==null)return toast('「設定」でYouTubeのURLを入れてください');song.offset=Math.round(v*1000)/1000;save();syncShow();toast('開始位置を '+song.offset.toFixed(2)+' 秒にしました');};
 /* ---------- boot ---------- */
 if(location.protocol==='file:')$('#fileWarn').classList.remove('hidden');
 try{const c=document.createElement('canvas');c.width=c.height=180;const x=c.getContext('2d');x.fillStyle='#141519';x.fillRect(0,0,180,180);
